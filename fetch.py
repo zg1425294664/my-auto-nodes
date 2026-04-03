@@ -2,75 +2,75 @@ import requests
 import base64
 import re
 import socket
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# 精简后的高质量源，去掉了容易卡死的源
+# 精简源：只保留几个响应最快的
 urls = [
     "https://raw.githubusercontent.com/vpei/free/master/v2ray",
     "https://raw.githubusercontent.com/freefq/free/master/v2",
-    "https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/main/all_extracted_configs.txt",
     "https://raw.githubusercontent.com/anaer/Sub/master/nodes.txt"
 ]
 
 def check_node(node_str):
-    """测试节点是否存活，严格限制在 1.5 秒内"""
+    """极速检测：仅 1 秒超时"""
     try:
-        node_str = node_str.strip()
-        if not node_str: return None
+        node = node_str.strip()
+        if not node or "://" not in node: return None
         
-        # 简单提取 IP/域名 和 端口
-        # 匹配格式如 @address:port
-        match = re.search(r'@?([a-zA-Z0-9.-]+):([0-9]+)', node_str)
+        # 提取地址和端口的通用正则
+        match = re.search(r'@?([a-zA-Z0-9.-]+):([0-9]+)', node)
         if match:
-            addr = match.group(1)
-            port = int(match.group(2))
-            # 核心改进：socket 测试增加极短的 timeout
-            with socket.create_connection((addr, port), timeout=1.5) as s:
-                return node_str
+            addr, port = match.group(1), int(match.group(2))
+            # 使用最基础的 socket，设置 1 秒硬性超时
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1.0) 
+                if s.connect_ex((addr, port)) == 0:
+                    return node
     except:
         pass
     return None
 
 def main():
-    all_nodes = []
-    # 1. 抓取阶段：增加 stream=True 和 timeout 防止下载大文件卡死
+    print("--- 开始抓取阶段 ---")
+    raw_nodes = []
     for url in urls:
         try:
-            print(f"正在抓取: {url}")
-            with requests.get(url, timeout=5, stream=True) as r:
-                r.raise_for_status()
-                text = r.text
-                # 尝试 Base64 解码
-                try:
-                    # 自动补齐 Base64 填充并解码
-                    decoded = base64.b64decode(text + '=' * (-len(text) % 4)).decode('utf-8', 'ignore')
-                    all_nodes.extend(decoded.splitlines())
-                except:
-                    all_nodes.extend(text.splitlines())
-        except Exception as e:
-            print(f"跳过源 {url}: {e}")
+            r = requests.get(url, timeout=5)
+            content = r.text
+            # 自动处理 Base64
+            try:
+                content = base64.b64decode(content + '===').decode('utf-8', 'ignore')
+            except:
+                pass
+            raw_nodes.extend(content.splitlines())
+            print(f"成功获取源: {url}")
+        except:
+            print(f"跳过失效源: {url}")
 
-    # 2. 清洗数据
-    unique_nodes = list(set([n.strip() for n in all_nodes if "://" in n]))
-    print(f"原始节点总数: {len(unique_nodes)}，开始快速过滤...")
+    # 去重并初步清理
+    unique_nodes = list(set([n.strip() for n in raw_nodes if "://" in n]))[:200] # 限制前200个，防止任务过重
+    print(f"待测节点总数: {len(unique_nodes)}")
 
-    # 3. 过滤阶段：限制最大线程数，防止被 GitHub 判定为攻击
+    print("--- 开始极速过滤阶段 ---")
     valid_nodes = []
-    with ThreadPoolExecutor(max_workers=30) as executor:
-        results = list(executor.map(check_node, unique_nodes))
-        valid_nodes = [r for r in results if r]
+    # 降低并发到 20，避免触发 GitHub 网络保护
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        future_to_node = {executor.submit(check_node, n): n for n in unique_nodes}
+        for future in as_completed(future_to_node):
+            res = future.result()
+            if res:
+                valid_nodes.append(res)
+                if len(valid_nodes) >= 50: break # 抓够 50 个就收工，防止后面卡死
 
-    print(f"过滤完成！存活节点: {len(valid_nodes)}")
+    print(f"过滤完成！找到有效节点: {len(valid_nodes)}")
 
-    # 4. 写入文件
+    # 最终写入
     if valid_nodes:
-        final_b64 = base64.b64encode("\n".join(valid_nodes).encode()).decode()
+        output = base64.b64encode("\n".join(valid_nodes).encode()).decode()
         with open("sub.txt", "w") as f:
-            f.write(final_b64)
+            f.write(output)
     else:
-        # 如果全部失败，至少创建一个空文件防止 Actions 报错
-        with open("sub.txt", "w") as f:
-            f.write("")
+        with open("sub.txt", "w") as f: f.write("")
 
 if __name__ == "__main__":
     main()
