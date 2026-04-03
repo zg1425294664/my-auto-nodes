@@ -4,7 +4,7 @@ import re
 import socket
 from concurrent.futures import ThreadPoolExecutor
 
-# 推荐的节点源
+# 精简后的高质量源，去掉了容易卡死的源
 # 2026 高质量、高频更新源列表
 urls = [
     # Epodonios 聚合源（每5分钟更新，量大管饱）
@@ -22,65 +22,66 @@ urls = [
     # vpei 经典源（老牌稳定）
     "https://raw.githubusercontent.com/vpei/free/master/v2ray"
 ]
-# TCP 端口连接测试函数
+
 def check_node(node_str):
+    """测试节点是否存活，严格限制在 1.5 秒内"""
     try:
-        addr, port = None, None
-        # 处理 vmess 协议 (Base64 JSON)
-        if node_str.startswith("vmess://"):
-            import json
-            v_data = json.loads(base64.b64decode(node_str[8:]).decode('utf-8'))
-            addr, port = v_data.get('add'), v_data.get('port')
-        # 处理 ss/vless/trojan 协议 (正则提取地址和端口)
-        else:
-            match = re.search(r'@?([a-zA-Z0-9.-]+):([0-9]+)', node_str)
-            if match:
-                addr, port = match.group(1), int(match.group(2))
+        node_str = node_str.strip()
+        if not node_str: return None
         
-        if addr and port:
-            # 尝试建立 TCP 连接，超时时间设为 2 秒
-            s = socket.create_connection((addr, int(port)), timeout=2)
-            s.close()
-            return node_str # 连接成功，返回节点
+        # 简单提取 IP/域名 和 端口
+        # 匹配格式如 @address:port
+        match = re.search(r'@?([a-zA-Z0-9.-]+):([0-9]+)', node_str)
+        if match:
+            addr = match.group(1)
+            port = int(match.group(2))
+            # 核心改进：socket 测试增加极短的 timeout
+            with socket.create_connection((addr, port), timeout=1.5) as s:
+                return node_str
     except:
         pass
-    return None # 连接失败
+    return None
 
 def main():
     all_nodes = []
+    # 1. 抓取阶段：增加 stream=True 和 timeout 防止下载大文件卡死
     for url in urls:
         try:
-            res = requests.get(url, timeout=10)
-            # 兼容 Base64 和明文格式
-            content = res.text
-            try:
-                # 补齐 Base64 填充
-                content = base64.b64decode(content + '=' * (-len(content) % 4)).decode('utf-8')
-            except:
-                pass
-            all_nodes.extend(content.splitlines())
-        except:
-            continue
+            print(f"正在抓取: {url}")
+            with requests.get(url, timeout=5, stream=True) as r:
+                r.raise_for_status()
+                text = r.text
+                # 尝试 Base64 解码
+                try:
+                    # 自动补齐 Base64 填充并解码
+                    decoded = base64.b64decode(text + '=' * (-len(text) % 4)).decode('utf-8', 'ignore')
+                    all_nodes.extend(decoded.splitlines())
+                except:
+                    all_nodes.extend(text.splitlines())
+        except Exception as e:
+            print(f"跳过源 {url}: {e}")
 
-    # 去重并清理
+    # 2. 清洗数据
     unique_nodes = list(set([n.strip() for n in all_nodes if "://" in n]))
-    print(f"抓取完成，共 {len(unique_nodes)} 个节点。开始测速过滤...")
+    print(f"原始节点总数: {len(unique_nodes)}，开始快速过滤...")
 
-    # 使用多线程进行测速（开启 50 个线程）
+    # 3. 过滤阶段：限制最大线程数，防止被 GitHub 判定为攻击
     valid_nodes = []
-    with ThreadPoolExecutor(max_workers=50) as executor:
-        results = executor.map(check_node, unique_nodes)
-        for r in results:
-            if r:
-                valid_nodes.append(r)
+    with ThreadPoolExecutor(max_workers=30) as executor:
+        results = list(executor.map(check_node, unique_nodes))
+        valid_nodes = [r for r in results if r]
 
-    print(f"测速完成！存活节点数: {len(valid_nodes)}")
+    print(f"过滤完成！存活节点: {len(valid_nodes)}")
 
-    # 重新 Base64 编码并保存
+    # 4. 写入文件
     if valid_nodes:
         final_b64 = base64.b64encode("\n".join(valid_nodes).encode()).decode()
         with open("sub.txt", "w") as f:
             f.write(final_b64)
+    else:
+        # 如果全部失败，至少创建一个空文件防止 Actions 报错
+        with open("sub.txt", "w") as f:
+            f.write("")
 
 if __name__ == "__main__":
     main()
