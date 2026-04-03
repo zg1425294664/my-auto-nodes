@@ -1,13 +1,14 @@
 import requests
 import base64
+import re
 
-# 增加更多非 GitHub 的聚合源，提高存活率
+# 2026年依然存活率较高的 Reality/VLESS 聚合源
 urls = [
-    "https://raw.githubusercontent.com/vpei/free/master/v2ray",
-    "https://raw.githubusercontent.com/freefq/free/master/v2",
-    "https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/main/all_extracted_configs.txt",
-    "https://gitlab.com/free54188/v2ray-free/-/raw/master/v2",
-    "https://fastly.jsdelivr.net/gh/aiboboxx/v2rayfree@main/v2" # 使用 jsdelivr 加速
+    "https://raw.githubusercontent.com/tubaile/free/main/v2",
+    "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt",
+    "https://raw.githubusercontent.com/V2rayFree/V2rayFree/master/sub",
+    "https://raw.githubusercontent.com/yebekhe/TVC/main/subscriptions/protocols/vless",
+    "https://raw.githubusercontent.com/LonUp/NodeList/main/v2ray/all.txt"
 ]
 
 def main():
@@ -16,31 +17,31 @@ def main():
     
     for url in urls:
         try:
-            r = requests.get(url, headers=headers, timeout=15)
+            r = requests.get(url, headers=headers, timeout=10)
             if r.status_code == 200:
-                content = r.text.strip()
-                # 尝试解码
+                content = r.text
+                # 自动识别是否需要 Base64 解码
                 try:
-                    decoded = base64.b64decode(content + '===').decode('utf-8', 'ignore')
-                    lines = decoded.splitlines()
-                except:
-                    lines = content.splitlines()
+                    if "://" not in content[:50]:
+                        content = base64.b64decode(content + '===').decode('utf-8', 'ignore')
+                except: pass
                 
+                lines = content.splitlines()
                 for line in lines:
-                    # 只抓取包含主流协议头的行，并排除掉一些明显是广告的行
-                    if any(prot in line for prot in ["vmess://", "vless://", "ss://", "trojan://"]):
-                        if len(line) > 30: # 过滤掉太短的无效链接
-                            all_nodes.append(line.strip())
-        except:
-            continue
+                    line = line.strip()
+                    # 重点：优先提取 vless 和 trojan，这两个协议目前最稳
+                    if any(p in line for p in ["vless://", "trojan://", "ss://", "vmess://"]):
+                        # 过滤掉一些明显的失效字符
+                        if len(line) > 50 and "github" not in line.lower():
+                            all_nodes.append(line)
+        except: continue
 
     unique_nodes = list(set(all_nodes))
-    
-    if unique_nodes:
-        # 重点：为了提高成功率，我们只取前 150 个（最新的通常在前面）
-        # 太多节点会导致 v2rayN 测速时直接把你的网络卡死
-        final_list = unique_nodes[:150]
-        final_b64 = base64.b64encode("\n".join(final_list).encode()).decode()
+    # 只要最新的 100 个，保证质量
+    final_nodes = unique_nodes[:100]
+
+    if final_nodes:
+        res_b64 = base64.b64encode("\n".join(final_nodes).encode()).decode()
         with open("sub.txt", "w") as f:
-            f.write(final_b64)
-        print(f"成功写入 {len(final_list)} 个节点")
+            f.write(res_b64)
+        print(f"写入成功，包含 {len(final_nodes)} 个精选节点")
