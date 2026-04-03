@@ -1,76 +1,79 @@
 import requests
 import base64
 import re
-import socket
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# 精简源：只保留几个响应最快的
+# 混合多种类型的源：包含 GitHub、GitLab 和独立页面
 urls = [
+    # 核心源 1：vpei (经典)
     "https://raw.githubusercontent.com/vpei/free/master/v2ray",
+    # 核心源 2：freefq (高频)
     "https://raw.githubusercontent.com/freefq/free/master/v2",
-    "https://raw.githubusercontent.com/anaer/Sub/master/nodes.txt"
+    # 核心源 3：非 GitHub 源 (用来防 GitHub 抽风)
+    "https://gitlab.com/free54188/v2ray-free/-/raw/master/v2",
+    # 核心源 4：另一个聚合源
+    "https://raw.githubusercontent.com/anaer/Sub/master/nodes.txt",
+    # 核心源 5：一些爬虫汇总
+    "https://raw.githubusercontent.com/tubaile/free/main/v2"
 ]
 
-def check_node(node_str):
-    """极速检测：仅 1 秒超时"""
-    try:
-        node = node_str.strip()
-        if not node or "://" not in node: return None
-        
-        # 提取地址和端口的通用正则
-        match = re.search(r'@?([a-zA-Z0-9.-]+):([0-9]+)', node)
-        if match:
-            addr, port = match.group(1), int(match.group(2))
-            # 使用最基础的 socket，设置 1 秒硬性超时
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(1.0) 
-                if s.connect_ex((addr, port)) == 0:
-                    return node
-    except:
-        pass
-    return None
-
 def main():
+    all_nodes = []
     print("--- 开始抓取阶段 ---")
-    raw_nodes = []
+    
     for url in urls:
         try:
-            r = requests.get(url, timeout=5)
-            content = r.text
-            # 自动处理 Base64
-            try:
-                content = base64.b64decode(content + '===').decode('utf-8', 'ignore')
-            except:
-                pass
-            raw_nodes.extend(content.splitlines())
-            print(f"成功获取源: {url}")
-        except:
-            print(f"跳过失效源: {url}")
+            # 增加 User-Agent 伪装成浏览器
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            r = requests.get(url, headers=headers, timeout=15)
+            
+            if r.status_code == 200:
+                content = r.text.strip()
+                if not content:
+                    continue
+                
+                # 判断是否是 Base64 编码
+                # 简单逻辑：如果不包含协议头 "://" 且字符较多，尝试解码
+                if "://" not in content[:50]:
+                    try:
+                        # 自动补齐 Base64 填充
+                        missing_padding = len(content) % 4
+                        if missing_padding:
+                            content += '=' * (4 - missing_padding)
+                        decoded = base64.b64decode(content).decode('utf-8', 'ignore')
+                        lines = decoded.splitlines()
+                    except:
+                        lines = content.splitlines()
+                else:
+                    lines = content.splitlines()
+                
+                # 提取包含协议头的行
+                for line in lines:
+                    line = line.strip()
+                    if "://" in line:
+                        all_nodes.append(line)
+                print(f"源 {url} 抓取成功，当前累计节点: {len(all_nodes)}")
+        except Exception as e:
+            print(f"源 {url} 请求失败: {e}")
 
-    # 去重并初步清理
-    unique_nodes = list(set([n.strip() for n in raw_nodes if "://" in n]))[:200] # 限制前200个，防止任务过重
-    print(f"待测节点总数: {len(unique_nodes)}")
+    # 去重
+    unique_nodes = list(set(all_nodes))
+    print(f"--- 抓取结束，共计去重节点: {len(unique_nodes)} ---")
 
-    print("--- 开始极速过滤阶段 ---")
-    valid_nodes = []
-    # 降低并发到 20，避免触发 GitHub 网络保护
-    with ThreadPoolExecutor(max_workers=20) as executor:
-        future_to_node = {executor.submit(check_node, n): n for n in unique_nodes}
-        for future in as_completed(future_to_node):
-            res = future.result()
-            if res:
-                valid_nodes.append(res)
-                if len(valid_nodes) >= 50: break # 抓够 50 个就收工，防止后面卡死
-
-    print(f"过滤完成！找到有效节点: {len(valid_nodes)}")
-
-    # 最终写入
-    if valid_nodes:
-        output = base64.b64encode("\n".join(valid_nodes).encode()).decode()
+    # 最终处理
+    if unique_nodes:
+        # 将所有节点合并，并进行标准的 Base64 编码
+        final_str = "\n".join(unique_nodes)
+        final_b64 = base64.b64encode(final_str.encode('utf-8')).decode('utf-8')
+        
         with open("sub.txt", "w") as f:
-            f.write(output)
+            f.write(final_b64)
+        print("写入 sub.txt 成功！")
     else:
-        with open("sub.txt", "w") as f: f.write("")
+        # 如果真的一个都没抓到，写入一个提示（防止 v2rayN 报错）
+        # 这里塞一个过期的假节点，至少让软件能识别出格式
+        print("警告：未抓取到任何节点！")
+        with open("sub.txt", "w") as f:
+            f.write("")
 
 if __name__ == "__main__":
     main()
