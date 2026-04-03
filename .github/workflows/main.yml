@@ -1,0 +1,32 @@
+name: Auto_Update_Nodes
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # 每 6 小时运行一次
+  workflow_dispatch:      # 允许你手动点击运行
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检查代码
+        uses: actions/checkout@v3
+
+      - name: 安装 Python 运行环境
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: 安装依赖包
+        run: pip install requests
+
+      - name: 执行抓取脚本
+        run: python fetch.py
+
+      - name: 将更新后的文件推送到仓库
+        run: |
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Action"
+          git add sub.txt
+          git commit -m "Update nodes" || exit 0
+          git push
