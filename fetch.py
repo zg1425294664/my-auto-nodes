@@ -5,22 +5,11 @@ import socket
 from concurrent.futures import ThreadPoolExecutor
 
 # 精简后的高质量源，去掉了容易卡死的源
-# 2026 高质量、高频更新源列表
 urls = [
-    # Epodonios 聚合源（每5分钟更新，量大管饱）
-    "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt",
-    
-    # EbraSha 自动清理源（每15分钟更新，自动剔除失效节点）
+    "https://raw.githubusercontent.com/vpei/free/master/v2ray",
+    "https://raw.githubusercontent.com/freefq/free/master/v2",
     "https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/main/all_extracted_configs.txt",
-    
-    # Barry-Far 协议分类源（订阅1，稳定性较好）
-    "https://raw.githubusercontent.com/barry-far/V2ray-config/main/Sub1.txt",
-    
-    # Pawdroid 长期维护源（6小时更新，质量较高）
-    "https://raw.githubusercontent.com/Pawdroid/Free-servers/main/sub",
-    
-    # vpei 经典源（老牌稳定）
-    "https://raw.githubusercontent.com/vpei/free/master/v2ray"
+    "https://raw.githubusercontent.com/anaer/Sub/master/nodes.txt"
 ]
 
 def check_node(node_str):
