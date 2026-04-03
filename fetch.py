@@ -4,12 +4,12 @@ import re
 
 # 改进后的源（这些源目前相对活跃，建议经常更换）
 urls = [
-    "https://raw.githubusercontent.com/freefq/free/master/v2",
     "https://raw.githubusercontent.com/vpei/free/master/v2ray",
-    "https://raw.githubusercontent.com/tubaile/free/main/v2",
-    "https://raw.githubusercontent.com/Pawdroid/Free-V2ray-Nodes/master/v2ray.txt"
+    "https://raw.githubusercontent.com/freefq/free/master/v2",
+    "https://raw.githubusercontent.com/aiboboxx/v2rayfree/main/v2",
+    "https://raw.githubusercontent.com/Leon406/SubCrawler/main/sub/share/all",
+    "https://raw.githubusercontent.com/anaer/Sub/master/nodes.txt"
 ]
-
 def main():
     combined_list = []
     for url in urls:
